@@ -1,0 +1,27 @@
+name: 问题反馈
+description: 报告可以复现的软件问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "请勿上传私人 PDF、合同、密码或其他敏感内容。"
+  - type: input
+    id: version
+    attributes:
+      label: 软件与 Windows 版本
+      placeholder: "PaperDesk v1.0，Windows 11 x64"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: "描述具体操作，以及文件类型、页数等必要条件。"
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 期望结果与实际结果
+    validations:
+      required: true

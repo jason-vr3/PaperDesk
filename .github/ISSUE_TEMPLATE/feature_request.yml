@@ -1,0 +1,11 @@
+name: 功能建议
+description: 提出具体办公场景与功能建议
+title: "[Feature] "
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: 想解决什么问题？
+      description: "描述你的使用场景与希望的操作方式。"
+    validations:
+      required: true
