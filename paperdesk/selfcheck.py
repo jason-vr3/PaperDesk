@@ -7,6 +7,7 @@ import pymupdf as pdf
 from PIL import Image, ImageDraw
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QImage, QColor
+from PySide6.QtCore import QItemSelectionModel
 from .app import Window, configure_app
 
 
@@ -31,35 +32,54 @@ def run(directory):
         page.insert_text((72, 695), 'Preview. Arrange. Export.', fontsize=20, color=(.15,.45,.85))
     window.pages = window.library.add_pdf(document.tobytes(), '办公资料.pdf')
     document.close()
-    image = Image.new('RGB', (900,1200), '#faf9f6')
+    image = Image.new('RGB', (1200,800), '#faf9f6')
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((70,80,830,1120), radius=20, fill='white', outline='#d8dee8', width=3)
-    draw.rectangle((120,160,780,210), fill='#2478ed')
-    for y in range(300, 1000, 80):
-        draw.line((120,y,750,y), fill='#d8dee8', width=3)
+    draw.rounded_rectangle((70,60,1130,740), radius=20, fill='white', outline='#d8dee8', width=3)
+    draw.rectangle((120,130,1080,180), fill='#2478ed')
+    for y in range(260, 680, 70):
+        draw.line((120,y,1080,y), fill='#d8dee8', width=3)
     data = BytesIO()
     image.save(data, 'PNG')
-    window.pages += window.library.add_image(data.getvalue(), '扫描图片.png')
-    window.rebuild(0)
+    window.pages += window.library.add_image(data.getvalue(), '横向图片.png')
+    window.rebuild(3)
     for _ in window.pages:
         window.fill_thumbnail()
     app.processEvents()
     window.render_preview()
     window.grab().save(str(output / '界面-页面整理.png'))
+    assert window.preview.pixmap().width() > window.preview.pixmap().height()
+    window.set_orientation('portrait')
+    for _ in window.pages:
+        window.fill_thumbnail()
+    app.processEvents()
+    window.grab().save(str(output / '界面-手动纵向.png'))
+    assert window.preview.pixmap().width() < window.preview.pixmap().height()
+    window.rotate(90)
+    assert window.pages[3].orientation == 'portrait'
+    assert window.preview.pixmap().width() < window.preview.pixmap().height()
+    window.undo()
+    window.undo()
+    assert window.pages[3].orientation == 'auto'
     clipboard = QImage(120,80,QImage.Format.Format_RGB32)
     clipboard.fill(QColor('white'))
     QApplication.clipboard().setImage(clipboard)
+    app.processEvents()
     window.paste()
     assert len(window.pages) == 5
     window.undo()
     window.rotate(90)
     window.undo()
+    window.list.setCurrentRow(0, QItemSelectionModel.SelectionFlag.ClearAndSelect)
     window.library.export(window.pages, str(output / '混合导出-示例.pdf'))
     with pdf.open(output / '混合导出-示例.pdf') as exported:
         assert len(exported) == 4
         assert 'PAPERDESK' in exported[0].get_text()
+        assert exported[0].rect.width < exported[0].rect.height
+        assert exported[3].rect.width > exported[3].rect.height
         exported[0].get_pixmap(matrix=pdf.Matrix(1,1)).save(output / '导出-预览.png')
+        exported[3].get_pixmap(matrix=pdf.Matrix(1,1)).save(output / '导出-横向.png')
     window.saved_state = window.state()
     window.close()
     (output / 'selfcheck.json').write_text(json.dumps({'status':'passed', 'pages':4,
-        'checks':['runtime','clipboard','undo','rotation','A4','mixed export','searchable text','render']}, indent=2), encoding='utf-8')
+        'checks':['runtime','clipboard','undo','rotation','per-page A4 orientation',
+                  'fixed portrait','mixed portrait/landscape export','searchable text','render']}, indent=2), encoding='utf-8')

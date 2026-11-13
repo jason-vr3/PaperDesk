@@ -23,6 +23,8 @@ class Page:
     label: str
     rotation: int = 0
     uid: str = ''
+    orientation: str = 'auto'
+    is_image: bool = False
 
 
 class Library:
@@ -73,44 +75,56 @@ class Library:
             page.insert_image(page.rect, stream=stream.getvalue())
             data_pdf = doc.tobytes()
             doc.close()
-        return self.add_pdf(data_pdf, label)
+        return [replace(p, is_image=True) for p in self.add_pdf(data_pdf, label)]
 
-    def compose_page(self, output: pdf.Document, item: Page, preserve: bool = False,
-                     landscape: bool = False):
+    def page_size(self, item: Page, preserve: bool = False):
+        """Visible dimensions include original PDF rotation and the user's rotation."""
+        bounds = self.documents[item.source][item.number].rect
+        w, h = bounds.width, bounds.height
+        if item.rotation % 180:
+            w, h = h, w
+        if preserve and not item.is_image:
+            return w, h
+        if item.orientation not in ('auto', 'portrait', 'landscape'):
+            raise ValueError('未知的纸张方向。')
+        landscape = item.orientation == 'landscape' or (item.orientation == 'auto' and w > h)
+        return A4[::-1] if landscape else A4
+
+    def compose_page(self, output: pdf.Document, item: Page, preserve: bool = False):
         source = self.documents[item.source]
         single = pdf.open()
         try:
             single.insert_pdf(source, from_page=item.number, to_page=item.number)
             single[0].set_rotation((single[0].rotation + item.rotation) % 360)
-            if preserve and not item.label.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.webp')):
+            if preserve and not item.is_image:
                 output.insert_pdf(single)
                 return
             single[0].remove_rotation()
-            w, h = A4[::-1] if landscape else A4
+            w, h = self.page_size(item, preserve)
             target = output.new_page(width=w, height=h)
             if single[0].get_contents():
                 target.show_pdf_page(target.rect, single, 0, keep_proportion=True)
         finally:
             single.close()
 
-    def document(self, pages: list[Page], preserve=False, landscape=False):
+    def document(self, pages: list[Page], preserve=False):
         result = pdf.open()
         try:
             for page in pages:
-                self.compose_page(result, page, preserve, landscape)
+                self.compose_page(result, page, preserve)
             return result
         except Exception:
             result.close()
             raise
 
-    def export(self, pages: list[Page], destination: str, preserve=False, landscape=False):
+    def export(self, pages: list[Page], destination: str, preserve=False):
         if not pages:
             raise ValueError('请先添加页面。')
         destination = str(Path(destination).absolute())
         fd, temporary = tempfile.mkstemp(prefix='.paperdesk-', suffix='.pdf', dir=Path(destination).parent)
         os.close(fd)
         try:
-            with self.document(pages, preserve, landscape) as result:
+            with self.document(pages, preserve) as result:
                 result.set_metadata({'title': Path(destination).stem,
                                      'creator': f'轻页 PaperDesk v{__version__} / {__author__}'})
                 result.save(temporary, garbage=4, deflate=True)

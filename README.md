@@ -2,11 +2,11 @@
 
 **Windows 本机图片与 PDF 页面整理工具。** 中文界面，离线处理，无需账号，无遥测。
 
-[![Version](https://img.shields.io/badge/version-v1.0-2478ed)](https://github.com/jason-vr3/PaperDesk/releases/tag/v1.0)
+[![Version](https://img.shields.io/badge/version-v1.1-2478ed)](https://github.com/jason-vr3/PaperDesk/releases/tag/v1.1)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-blue)](https://github.com/jason-vr3/PaperDesk/releases/latest)
 [![License](https://img.shields.io/badge/license-AGPL--3.0--or--later-green)](LICENSE)
 
-**作者：[jason-vr3](https://github.com/jason-vr3)** · **版本：v1.0** · [下载软件](https://github.com/jason-vr3/PaperDesk/releases/latest) · [反馈问题](https://github.com/jason-vr3/PaperDesk/issues)
+**作者：[jason-vr3](https://github.com/jason-vr3)** · **版本：v1.1** · [下载软件](https://github.com/jason-vr3/PaperDesk/releases/latest) · [反馈问题](https://github.com/jason-vr3/PaperDesk/issues)
 
 本项目通过 **AI 辅助完成（OpenAI Codex）**，由作者确定需求并进行使用验证。详见 [AI 辅助开发说明](AI_ASSISTANCE.md)。
 
@@ -21,23 +21,32 @@
 | 页面旋转 | 顺时针、逆时针旋转 90°，可多选 |
 | 混合合并 | 图片与多个 PDF 放在同一页面列表中整理 |
 | 插入与删除 | 指定 PDF 部分页加入、删除多余页、拖动排序 |
-| A4 输出 | 默认 A4，支持横纵向和保留原 PDF 页面尺寸 |
+| A4 输出 | 每页自动适配横纵向，可手动固定，支持横竖混排及保留原 PDF 页面尺寸 |
 
 常用流程：**添加文件／粘贴图片 → 排序、旋转、删除 → 导出 PDF**。
 
 ## 免安装使用
 
-前往 [Releases 下载页](https://github.com/jason-vr3/PaperDesk/releases/latest)，下载 `PaperDesk-v1.0-Windows-x64.zip`，**先完整解压**，双击文件夹里的 `PaperDesk.exe`。无需安装 Python；请保留旁边的 `_internal` 文件夹。目标平台为 Windows 10/11 x64。
+前往 [Releases 下载页](https://github.com/jason-vr3/PaperDesk/releases/latest)，下载 `PaperDesk-v1.1-Windows-x64.zip`，**先完整解压**，双击文件夹里的 `PaperDesk.exe`。无需安装 Python；请保留旁边的 `_internal` 文件夹。目标平台为 Windows 10/11 x64。
 
-压缩包约 59 MB。`PaperDesk-v1.0-source.zip` 是源码包；GitHub 自动生成的 Source code 压缩包也属于源码，不能直接双击运行。`SHA256.json` 提供发行文件校验值。
+压缩包约 59 MB。`PaperDesk-v1.1-source.zip` 是源码包；GitHub 自动生成的 Source code 压缩包也属于源码，不能直接双击运行。`SHA256-v1.1.json` 提供发行文件校验值。
 
 1. 点击「添加文件」、拖入文件，或按 Ctrl+V 粘贴剪贴板图片。
 2. 单独加入一个 PDF 时，可指定页码，例如 `1,3-5`，并选择插入位置。一次导入多个文件时按文件选择顺序添加全部页；可以在页面列表中调整顺序。
 3. 左侧选中页面后，旋转、前移、后移或删除。Ctrl / Shift 可多选，支持拖动排序。添加图片默认插在当前页后面。
-4. 选择 A4 纵向或横向，右侧预览与导出采用相同的排版方式。内容等比例居中，不拉伸、不裁切。
+4. 新页面默认自动适配纸张方向；选中页面后，可用「自动／纵向／横向」设置所选页面的 A4 方向。内容等比例居中，不拉伸、不裁切。
 5. 点击「导出 PDF」，选择保存位置。默认另存为；如果选择原文件或其他已有文件，保存对话框会要求确认覆盖。
 
-勾选「保留原 PDF 页面尺寸」后，PDF 页保持原尺寸；图片页仍使用所选 A4 方向。一张图片对应一页。原文件不会因页面整理操作而改变。
+### 纸张方向与内容旋转
+
+- 每一页独立设置：横图自动放入横向 A4，竖图自动放入纵向 A4，正方形默认纵向。PDF 根据当前可见方向判断，包括原文件已有的旋转。
+- 「自动」模式下，左转或右转内容后，纸张方向会重新适配。
+- 手动指定「纵向」或「横向」只改变纸张方向，不旋转图片或文字；之后旋转内容，纸张也保持固定。点回「自动」可恢复跟随。
+- Ctrl / Shift 多选后可批量设置。按钮只影响当前选中页，新导入或粘贴的页面仍默认自动。同一份 PDF 可以混排横向和纵向 A4。
+- 勾选「保留原 PDF 页面尺寸」后，PDF 页标记为「原尺寸」，其 A4 方向按钮停用；图片页仍可独立设置 A4 方向。混选时按钮仅作用于图片页。取消勾选后，恢复 PDF 页之前的 A4 方向设置。
+- 纸张方向支持撤销重做。缩略图与页脚显示实际方向及「自动／固定」状态，右侧预览和导出采用相同排版。
+
+一张图片对应一页。原文件不会因页面整理操作而改变。
 
 快捷键：Ctrl+O 添加，Ctrl+V 粘贴，Ctrl+S 导出，Ctrl+Z 撤销，Ctrl+Shift+Z 重做，Ctrl+L 左转，Ctrl+R 右转，Delete 删除，Alt+↑/↓ 移动，Ctrl+N 新建。
 

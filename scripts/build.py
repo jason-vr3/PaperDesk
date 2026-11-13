@@ -9,6 +9,8 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from paperdesk import __version__
 release = ROOT / 'release'
 release.mkdir(exist_ok=True)
 
@@ -41,7 +43,7 @@ for package in ('PyMuPDF', 'PySide6-Essentials', 'shiboken6', 'Pillow', 'pyinsta
 for filename in ('README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'NOTICE', 'CHANGELOG.md', 'AI_ASSISTANCE.md'):
     shutil.copy2(ROOT / filename, portable / filename)
 
-source_zip = release / 'PaperDesk-v1.0-source.zip'
+source_zip = release / f'PaperDesk-v{__version__}-source.zip'
 with zipfile.ZipFile(source_zip, 'w', zipfile.ZIP_DEFLATED) as archive:
     for folder in ('paperdesk', 'tests', 'scripts', '.github', 'assets', 'legal'):
         for file in (ROOT / folder).rglob('*'):
@@ -55,7 +57,7 @@ with zipfile.ZipFile(source_zip, 'w', zipfile.ZIP_DEFLATED) as archive:
         if file.is_file():
             archive.write(file, Path('PaperDesk-source/licenses') / file.relative_to(licenses))
 
-zip_path = release / 'PaperDesk-v1.0-Windows-x64.zip'
+zip_path = release / f'PaperDesk-v{__version__}-Windows-x64.zip'
 with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as archive:
     for file in portable.rglob('*'):
         if file.is_file():
@@ -63,5 +65,6 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as archive:
 
 hashes = {file.name: hashlib.sha256(file.read_bytes()).hexdigest() for file in (zip_path, source_zip)}
 (release / 'SHA256.json').write_text(json.dumps(hashes, indent=2), encoding='utf-8')
+(release / f'SHA256-v{__version__}.json').write_text(json.dumps(hashes, indent=2), encoding='utf-8')
 print(json.dumps({'portable':str(portable),'packages':[
     {'name':p.name, 'size_mb':round(p.stat().st_size / 1024**2, 1)} for p in (zip_path, source_zip)]}, indent=2))

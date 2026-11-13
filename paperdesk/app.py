@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import os
+from dataclasses import replace
 from collections import OrderedDict
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from PySide6.QtGui import QAction, QIcon, QImage, QPixmap, QKeySequence, QFontDa
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QListWidget, QListWidgetItem, QAbstractItemView, QSplitter,
-    QScrollArea, QFileDialog, QMessageBox, QInputDialog, QComboBox,
+    QScrollArea, QFileDialog, QMessageBox, QInputDialog,
     QCheckBox, QFrame, QDialog, QDialogButtonBox, QLineEdit, QSpinBox,
 )
 from .core import Library, IMAGE_EXTENSIONS, rotate_pages, parse_pages
@@ -23,6 +24,7 @@ QMainWindow, QDialog { background: #f5f6f8; }
 QPushButton { background: white; border: 1px solid #dfe3e9; border-radius: 8px; padding: 8px 13px; }
 QPushButton:hover { background: #eef4ff; border-color: #b1cbf5; }
 QPushButton:pressed { background: #dce9ff; }
+QPushButton:checked { background: #e5efff; border-color: #9fc3f6; color: #155ebc; }
 QPushButton:disabled { color: #a3aab6; background: #f4f5f7; }
 QPushButton#primary { background: #2478ed; color: white; border: none; font-weight: 600; }
 QPushButton#primary:hover { background: #1764d3; }
@@ -127,8 +129,10 @@ class Window(QMainWindow):
         self.library = Library()
         self.pages = []
         self.undo_stack, self.redo_stack = [], []
-        self.saved_state = ((), False, False)
+        self.saved_state = ((), False)
+        self.last_preserve = False
         self.rebuilding = False
+        self.closing = False
         self.thumbnails = OrderedDict()
         self.zoom = 0.0
         self.preview_pixmap = None
@@ -165,10 +169,13 @@ class Window(QMainWindow):
 
         settings = QHBoxLayout()
         settings.setContentsMargins(24, 12, 24, 12)
-        settings.addWidget(QLabel('纸张'))
-        self.orientation = QComboBox()
-        self.orientation.addItems(['A4 纵向', 'A4 横向'])
-        settings.addWidget(self.orientation)
+        settings.addWidget(QLabel('所选页纸张'))
+        self.paper_buttons = {}
+        for mode, text in [('auto', '自动'), ('portrait', '纵向'), ('landscape', '横向')]:
+            button = self.button(settings, text, lambda checked=False, m=mode: self.set_orientation(m))
+            button.setCheckable(True)
+            button.setToolTip('只设置所选页面的 A4 方向，不旋转内容；新页面默认自动适配。')
+            self.paper_buttons[mode] = button
         self.preserve = QCheckBox('保留原 PDF 页面尺寸')
         settings.addWidget(self.preserve)
         settings.addStretch()
@@ -230,9 +237,8 @@ class Window(QMainWindow):
         self.statusBar().showMessage('本机离线处理  ·  默认另存为，保留原文件')
         self.list.filesDropped.connect(self.import_files)
         self.list.moved.connect(self.reordered)
-        self.list.currentRowChanged.connect(self.render_preview)
+        self.list.currentRowChanged.connect(self.current_changed)
         self.list.itemSelectionChanged.connect(self.update_actions)
-        self.orientation.currentIndexChanged.connect(self.settings_changed)
         self.preserve.toggled.connect(self.settings_changed)
         self.render_timer = QTimer(self)
         self.render_timer.setSingleShot(True)
@@ -260,7 +266,7 @@ class Window(QMainWindow):
         return button
 
     def state(self):
-        return (tuple(self.pages), self.preserve.isChecked(), self.orientation.currentIndex() == 1)
+        return (tuple(self.pages), self.preserve.isChecked())
 
     def checkpoint(self):
         self.undo_stack.append(self.state())
@@ -268,14 +274,11 @@ class Window(QMainWindow):
         self.redo_stack.clear()
 
     def restore(self, state):
-        pages, preserve, landscape = state
+        pages, preserve = state
         self.pages = list(pages)
         self.preserve.blockSignals(True)
-        self.orientation.blockSignals(True)
         self.preserve.setChecked(preserve)
-        self.orientation.setCurrentIndex(int(landscape))
         self.preserve.blockSignals(False)
-        self.orientation.blockSignals(False)
         self.rebuild()
 
     def undo(self):
@@ -289,12 +292,27 @@ class Window(QMainWindow):
             self.restore(self.redo_stack.pop())
 
     def settings_changed(self):
-        # The signal fires after changing the control. Reconstruct prior settings.
-        self.undo_stack.append((tuple(self.pages), *self.last_settings))
+        # Preserve-size checkbox fires after changing the control.
+        self.undo_stack.append((tuple(self.pages), self.last_preserve))
         self.undo_stack = self.undo_stack[-50:]
         self.redo_stack.clear()
-        self.last_settings = self.state()[1:]
-        self.preview_key = None
+        self.last_preserve = self.preserve.isChecked()
+        self.rebuild(selected_indices=self.selected())
+
+    def set_orientation(self, mode):
+        indices = [i for i in self.selected()
+                   if not self.preserve.isChecked() or self.pages[i].is_image]
+        if not indices or all(self.pages[i].orientation == mode for i in indices):
+            self.update_actions()
+            return
+        selected = self.selected()
+        self.checkpoint()
+        self.pages = [replace(p, orientation=mode) if i in indices else p
+                      for i, p in enumerate(self.pages)]
+        self.rebuild(selected_indices=selected)
+        self.statusBar().showMessage(f'已设置 {len(indices)} 页的纸张方向 · 图片和文字方向保持不变', 6000)
+
+    def current_changed(self, *_):
         self.render_preview()
         self.update_actions()
 
@@ -302,32 +320,56 @@ class Window(QMainWindow):
         return sorted(self.list.row(x) for x in self.list.selectedItems())
 
     def update_actions(self):
-        self.last_settings = self.state()[1:]
+        if self.rebuilding:
+            return
+        self.last_preserve = self.preserve.isChecked()
         self.export_button.setEnabled(bool(self.pages))
         for button in self.edit_buttons:
             button.setEnabled(bool(self.selected()))
+        eligible = [self.pages[i] for i in self.selected()
+                    if not self.preserve.isChecked() or self.pages[i].is_image]
+        modes = {p.orientation for p in eligible}
+        for mode, button in self.paper_buttons.items():
+            button.setEnabled(bool(eligible))
+            button.setChecked(modes == {mode})
+            button.setToolTip('PDF 正在保留原尺寸；取消勾选后可设置 A4 方向。' if not eligible and self.selected()
+                              else '仅作用于选中的 A4 页面；新页面默认自动适配，横竖页面可以混排。')
         dirty = self.state() != self.saved_state
         self.setWindowTitle(('● ' if dirty else '') + '轻页 PaperDesk')
 
-    def rebuild(self, select=None):
+    def paper_label(self, page):
+        if self.preserve.isChecked() and not page.is_image:
+            return '原尺寸'
+        w, h = self.library.page_size(page)
+        return ('A4 横向' if w > h else 'A4 纵向') + (' · 自动' if page.orientation == 'auto' else ' · 固定')
+
+    def rebuild(self, select=None, selected_indices=None):
         self.rebuilding = True
         current = self.list.currentRow() if select is None else select
         self.list.clear()
         for i, page in enumerate(self.pages):
-            item = QListWidgetItem(f'{i + 1:02d}   {page.label}\n原第 {page.number + 1} 页  ·  {page.rotation}°')
+            item = QListWidgetItem(f'{i + 1:02d}   {page.label}\n原第 {page.number + 1} 页 · {page.rotation}°\n{self.paper_label(page)}')
             item.setData(Qt.ItemDataRole.UserRole, page.uid)
             item.setToolTip(page.label)
             item.setSizeHint(QSize(215, 118))
+            key = self.thumbnail_key(page)
+            if key in self.thumbnails:
+                item.setIcon(QIcon(self.thumbnails[key]))
+                item.setData(Qt.ItemDataRole.UserRole + 1, key)
             self.list.addItem(item)
-        self.rebuilding = False
         if self.pages:
-            self.list.setCurrentRow(max(0, min(current, len(self.pages)-1)))
+            focus = max(0, min(current, len(self.pages)-1))
+            self.list.setCurrentRow(focus)
+            if selected_indices is not None:
+                for i in range(len(self.pages)):
+                    self.list.item(i).setSelected(i in selected_indices)
+        self.rebuilding = False
         self.preview_key = None
         self.render_preview()
         self.update_actions()
 
     def thumbnail_key(self, page):
-        return (page.source, page.number, page.rotation, *self.state()[1:])
+        return (page.source, page.number, page.rotation, page.orientation, page.is_image, self.preserve.isChecked())
 
     def pixmap(self, page, width, height):
         with self.library.document([page], *self.state()[1:]) as doc:
@@ -338,6 +380,8 @@ class Window(QMainWindow):
         return QPixmap.fromImage(image)
 
     def fill_thumbnail(self):
+        if self.closing:
+            return
         for i, page in enumerate(self.pages):
             item = self.list.item(i)
             key = self.thumbnail_key(page)
@@ -356,7 +400,7 @@ class Window(QMainWindow):
             break
 
     def render_preview(self, *_):
-        if self.rebuilding:
+        if self.rebuilding or self.closing:
             return
         index = self.list.currentRow()
         if index < 0 or not self.pages:
@@ -368,7 +412,8 @@ class Window(QMainWindow):
         available = self.scroll.viewport().size()
         w, h = max(100, available.width()-56), max(100, available.height()-48)
         if self.zoom:
-            w, h = int(595 * self.zoom), int(842 * self.zoom)
+            pw, ph = self.library.page_size(self.pages[index], self.preserve.isChecked())
+            w, h = int(pw * self.zoom), int(ph * self.zoom)
         key = (self.thumbnail_key(self.pages[index]), w, h)
         if key != self.preview_key:
             try:
@@ -378,12 +423,12 @@ class Window(QMainWindow):
                 self.preview_key = key
             except Exception as exc:
                 self.preview.setText('此页无法预览：' + str(exc))
-        self.page_label.setText(f'第 {index+1} / {len(self.pages)} 页  ·  导出效果预览')
+        self.page_label.setText(f'第 {index+1} / {len(self.pages)} 页 · {self.paper_label(self.pages[index])}')
         self.zoom_label.setText(f'{int(self.zoom*100)}%' if self.zoom else '适合窗口')
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, 'render_timer'):
+        if hasattr(self, 'render_timer') and not self.closing:
             self.render_timer.start(120)
 
     def change_zoom(self, delta):
@@ -468,9 +513,7 @@ class Window(QMainWindow):
             indices = self.selected()
             self.checkpoint()
             self.pages = rotate_pages(self.pages, indices, degrees)
-            self.rebuild(indices[0])
-            for i in indices:
-                self.list.item(i).setSelected(True)
+            self.rebuild(indices[0], selected_indices=indices)
 
     def delete(self):
         selected = self.selected()
@@ -550,6 +593,9 @@ class Window(QMainWindow):
 
     def closeEvent(self, event):
         if self.can_discard():
+            self.closing = True
+            self.render_timer.stop()
+            self.thumb_timer.stop()
             self.library.close()
             event.accept()
         else:
@@ -571,6 +617,8 @@ class Window(QMainWindow):
             '添加 → 排序 / 旋转 / 删除 → 导出 PDF\n'
             '单独添加 PDF 时可选择页码和插入位置。\n'
             '图片默认一图一页，等比例放入 A4，不裁切。\n\n'
+            '每页纸张默认自动适配横纵向，也可手动固定；\n'
+            '左转/右转只旋转内容，固定纸张不会跟随改变。\n\n'
             '备注和表单会保留可见外观，导出后不再可编辑；\n'
             '不保留书签、附件、数字签名及交互链接。\n'
             '多帧图片只导入第一帧。不含 OCR 与文字编辑。\n\n'

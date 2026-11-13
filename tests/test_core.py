@@ -1,4 +1,5 @@
 from io import BytesIO
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -77,7 +78,7 @@ class CompositionTests(unittest.TestCase):
         stream = BytesIO()
         Image.new('RGBA', (120, 80), (255, 0, 0, 128)).save(stream, 'PNG')
         image = self.lib.add_image(stream.getvalue(), '透明.png')
-        with self.lib.document(image+self.pages, preserve=True, landscape=True) as result:
+        with self.lib.document(image+self.pages, preserve=True) as result:
             self.assertEqual(len(result), 4)
             self.assertAlmostEqual(result[0].rect.width, A4[1], places=2)
             self.assertEqual(result[1].rect.width, 300)
@@ -90,6 +91,54 @@ class CompositionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.lib.add_pdf(data, 'private.pdf')
         self.assertEqual(len(self.lib.add_pdf(data, 'private.pdf', 'secret')), 3)
+
+    def image_page(self, size, label='image.png'):
+        stream = BytesIO()
+        Image.new('RGB', size, 'red').save(stream, 'PNG')
+        return self.lib.add_image(stream.getvalue(), label)[0]
+
+    def test_auto_mixed_a4_in_one_export(self):
+        pages = [self.image_page((240,120)), self.image_page((120,240)),
+                 self.image_page((120,120)), self.pages[1]]
+        path = Path(self.tmp.name) / '横竖混排.pdf'
+        self.lib.export(pages, str(path))
+        with pdf.open(path) as output:
+            self.assertEqual([p.rect.width > p.rect.height for p in output], [True,False,False,True])
+            for page in output:
+                self.assertAlmostEqual(min(page.rect.width,page.rect.height), A4[0], places=2)
+                self.assertAlmostEqual(max(page.rect.width,page.rect.height), A4[1], places=2)
+
+    def test_auto_follows_content_rotation(self):
+        page = self.image_page((240,120))
+        for degrees, expected in [(0, True),(90, False),(180, True),(270, False)]:
+            rotated = rotate_pages([page], [0], degrees)[0]
+            with self.lib.document([rotated]) as output:
+                self.assertEqual(output[0].rect.width > output[0].rect.height, expected)
+
+    def test_manual_paper_fixed_after_content_rotation(self):
+        page = self.image_page((240,120))
+        for mode, landscape in [('portrait', False),('landscape',True)]:
+            fixed = replace(page, orientation=mode)
+            for degrees in (0,90,180,270):
+                rotated = rotate_pages([fixed], [0], degrees)[0]
+                with self.lib.document([rotated]) as output:
+                    self.assertEqual(output[0].rect.width > output[0].rect.height, landscape)
+
+    def test_switching_paper_does_not_rotate_text(self):
+        for mode in ('portrait','landscape'):
+            with self.lib.document([replace(self.pages[0],orientation=mode)]) as output:
+                self.assertIn('PAGE 1', output[0].get_text())
+                line = output[0].get_text('dict')['blocks'][0]['lines'][0]
+                self.assertEqual(tuple(line['dir']), (1.0,0.0))
+
+    def test_preserved_pdf_and_image_have_independent_rules(self):
+        pdf_page = replace(self.pages[0], orientation='landscape')
+        # Type is explicit, independent of the display filename.
+        image = replace(self.image_page((240,120), 'clipboard'), orientation='portrait')
+        with self.lib.document([pdf_page,image], preserve=True) as output:
+            self.assertEqual((output[0].rect.width,output[0].rect.height), (300,450))
+            self.assertAlmostEqual(output[1].rect.width, A4[0],places=2)
+            self.assertAlmostEqual(output[1].rect.height,A4[1],places=2)
 
     def test_atomic_export_failure_keeps_existing(self):
         path = Path(self.tmp.name) / '结果.pdf'
